@@ -12,7 +12,7 @@ import {
   ChevronRight,
   User,
 } from "lucide-react";
-import { ROLES, CURRENT_ROLE } from "../data/seed";
+import { ROLES } from "../data/seed";
 import { cn } from "../lib/utils";
 
 const navItems: Record<string, { href: string; label: string; icon: any }[]> = {
@@ -64,7 +64,7 @@ export function Sidebar({
   const navigate = useNavigate();
   const location = useLocation();
   const items = navItems[role] || navItems.supplier;
-  const roleConfig = ROLES[CURRENT_ROLE];
+  const roleConfig = ROLES[role] || ROLES.supplier;
 
   const handleSignOut = () => {
     setParty("supplier");
@@ -176,12 +176,14 @@ export function Navbar({
   onMenuClick,
   party,
   onRoleChange,
+  role,
 }: {
   onMenuClick: () => void;
   party: string;
   onRoleChange: (r: string) => void;
+  role: string;
 }) {
-  const roleConfig = ROLES[CURRENT_ROLE];
+  const roleConfig = ROLES[role] || ROLES.supplier;
 
   return (
     <header className="h-14 glass-panel border-t-0 border-x-0 flex items-center justify-between px-4 lg:px-6 sticky top-0 z-20 bg-surface-400/80 backdrop-blur-lg">
@@ -213,7 +215,7 @@ export function Navbar({
               onClick={() => onRoleChange(key)}
               className={cn(
                 "px-2.5 py-1.5 text-[10px] font-semibold rounded-lg border transition-all",
-                CURRENT_ROLE === key
+                role === key
                   ? "bg-white/10 text-white border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.1)]"
                   : "text-slate-400 border-transparent hover:bg-slate-800/50 hover:text-white"
               )}

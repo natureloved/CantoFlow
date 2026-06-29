@@ -33,7 +33,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     setSidebarOpen(false);
   };
 
-  const party = PARTIES[CURRENT_ROLE] || PARTIES.Supplier;
+  const party = PARTIES[role] || PARTIES.Supplier;
 
   return (
     <div className="min-h-screen bg-surface-400 flex">
@@ -51,7 +51,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       />
 
       <div className="flex-1 flex flex-col min-h-screen">
-        <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} party={party} onRoleChange={setParty} />
+        <Navbar onMenuClick={() => setSidebarOpen(!sidebarOpen)} party={party} onRoleChange={setParty} role={role} />
         <main className="flex-1 bg-surface-400">
           <PrivacyBanner role={role} />
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
