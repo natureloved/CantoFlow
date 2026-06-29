@@ -206,18 +206,22 @@ export function Navbar({
           Canton Network
         </div>
 
-        <select
-          onChange={(e) => onRoleChange(e.target.value)}
-          value={CURRENT_ROLE}
-          className="bg-surface-200 border border-slate-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-blue/30"
-        >
-          <option value="supplier">Supplier</option>
-          <option value="lender_a">Lender A</option>
-          <option value="lender_b">Lender B</option>
-          <option value="lender_c">Lender C</option>
-          <option value="buyer">Buyer</option>
-          <option value="auditor">Auditor</option>
-        </select>
+        <div className="flex items-center gap-1">
+          {Object.entries(ROLES).map(([key, config]) => (
+            <button
+              key={key}
+              onClick={() => onRoleChange(key)}
+              className={cn(
+                "px-2.5 py-1.5 text-[10px] font-semibold rounded-lg border transition-all",
+                CURRENT_ROLE === key
+                  ? "bg-white/10 text-white border-white/20 shadow-[0_0_10px_rgba(255,255,255,0.1)]"
+                  : "text-slate-400 border-transparent hover:bg-slate-800/50 hover:text-white"
+              )}
+            >
+              {config.label.split(" ")[0]}
+            </button>
+          ))}
+        </div>
       </div>
     </header>
   );

@@ -6,319 +6,53 @@ CantoFlow demonstrates how [Canton Network](https://canton.network)'s Daml smart
 
 ---
 
-## Final Architecture
+## What This Is
 
-```text
-Frontend (React/Vite)
-    ↓
-Backend API / orchestration layer
-    ↓
-Canton / Daml Ledger API or JSON API
-    ↓
-Daml smart contracts on participant-hosted parties
+A working demo of a 4-role invoice financing workflow where **privacy is enforced at the smart contract level**, not just hidden in the UI.
+
+**The demo flow:**
+1. Supplier creates invoice financing request
+2. Buyer verifies invoice amount and due date
+3. Three lenders submit confidential bids (each bid is a separate contract)
+4. Supplier opens and compares bids privately
+5. Supplier accepts one bid
+6. Funding agreement is created
+7. Auditor reviews workflow integrity via selective disclosure
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Frontend | React 18 · Vite · TypeScript · Tailwind CSS · Framer Motion · TanStack Query · Recharts |
+| Backend | Node.js · TypeScript · Express |
+| Smart Contracts | Daml on Canton |
+
+---
+
+## Architecture
+
+```
+Frontend (React/Vite) → Backend API → Canton Ledger API → Daml Contracts
 ```
 
----
+**Key Contract Templates:**
+- `InvoiceRequest` — Signatories: supplier + buyer
+- `BuyerConfirmation` — Separate contract for buyer verification
+- `FinancingBid` — ONE contract per lender (signatories: supplier + one lender)
+- `FundingAgreement` — Signatories: supplier + lender + buyer
+- `AuditAccessGrant` — Delegated scope for auditor
+- `WorkflowEvent` — Append-only audit log
 
-## Architecture Summary
-
-CantoFlow is a multi-party financial workflow application with a web frontend, a lightweight backend orchestration layer, and Daml smart contracts running on Canton.
-
-**The architecture must make one thing obvious: privacy is enforced in the contract/ledger model, not merely hidden in the frontend.**
-
----
-
-## Frontend Architecture
-
-### Stack
-- React 18
-- Vite
-- TypeScript
-- Tailwind CSS
-- Framer Motion
-- React Router
-- TanStack Query
-- Recharts
-- Lucide icons
-
-### Modules
-- **Pages**: Landing, SupplierDashboard, LenderDashboard, BuyerDashboard, AuditorDashboard
-- **Shared**: PartySwitcher, PrivacyBanner, StatCard, Modal, Button, Timeline, TransactionStream
-- **Domain**: InvoiceCard, NewInvoiceModal, BidCard, BidList, BidsModal, LoanCard, VerificationPanel, AuditLogTable
-
-### Responsibilities
-- Render role-specific data
-- Explain visibility boundaries
-- Submit user actions to backend / ledger API
-- Display workflow status and events
-- Animate privacy and state changes
-
-### Must NOT do
-- Enforce privacy
-- Decide who can see what
-- Own core business rules
+**Privacy principle:** Each FinancingBid is a separate Daml contract. LenderA's node never sees LenderB's bid — Canton's sync protocol enforces this. The frontend simply reveals each party's legitimate view.
 
 ---
 
-## Backend Architecture
-
-### Stack
-- Node.js
-- TypeScript
-- Express
-- (Optional) Prisma + Postgres for read models
-
-### Responsibilities
-- Party lookup and session bootstrap
-- Auth/token handling for demo mode
-- Lightweight orchestration of frontend requests to ledger
-- Optional read model aggregation
-- Seeding demo data
-- Optional event projection for easier UI reads
-
-### Must NOT own
-- Core business logic — all financing workflow rules remain in Daml
-
-### Modules
-- `auth.ts`
-- `parties.ts`
-- `invoices.ts`
-- `bids.ts`
-- `agreements.ts`
-- `audit.ts`
-- `seed.ts`
-- `ledgerClient.ts`
-
----
-
-## Daml Smart Contract Architecture
-
-### Design Principle
-Use separate templates for each workflow stage, not one giant mutable record.
-
-### Templates
-
-#### 1. `InvoiceRequest`
-Represents a financing request created by the supplier.
-
-**Fields:**
-- `supplier` — Party
-- `buyer` — Party
-- `invoiceId` — Text
-- `amount` — Decimal
-- `currency` — Text
-- `dueDate` — Date
-- `requestedAdvance` — Decimal
-- `status` — InvoiceRequestStatus
-- `invitedLenders` — Set Party
-- `auditor` — Party (optional observer)
-
-**Choices:**
-- `InviteLenders` — Controller: supplier
-- `CancelRequest` — Controller: supplier
-- `SubmitForBuyerVerification` — Controller: supplier
-- `AcceptBid` — Controller: supplier
-
-#### 2. `BuyerConfirmation`
-Represents buyer validation. Separate template so buyer does not see financing terms.
-
-**Fields:**
-- `invoiceRequestCid` — ContractId InvoiceRequest
-- `supplier` — Party
-- `buyer` — Party
-- `confirmedAmount` — Decimal
-- `confirmedDueDate` — Date
-- `status` — ConfirmationStatus
-- `notes` — Text
-
-**Choices:**
-- `ConfirmInvoice` — Controller: buyer
-- `RaiseDispute` — Controller: buyer
-
-#### 3. `FinancingBid`
-Represents a confidential lender offer.
-
-**Fields:**
-- `invoiceRequestCid` — ContractId InvoiceRequest
-- `supplier` — Party
-- `lender` — Party
-- `offerAmount` — Decimal
-- `feeRate` — Decimal
-- `expiry` — Date
-- `status` — BidStatus
-
-**Choices:**
-- `WithdrawBid` — Controller: lender
-- `ExpireBid` — Controller: supplier
-- `MarkAccepted` — Controller: supplier
-
-#### 4. `FundingAgreement`
-Created when supplier accepts a bid.
-
-**Fields:**
-- `invoiceRequestCid` — ContractId InvoiceRequest
-- `supplier` — Party
-- `lender` — Party
-- `buyer` — Party
-- `principal` — Decimal
-- `feeRate` — Decimal
-- `repaymentAmount` — Decimal
-- `maturityDate` — Date
-- `status` — AgreementStatus
-
-**Choices:**
-- `RecordFunding` — Controller: supplier
-- `ScheduleRepayment` — Controller: supplier
-- `MarkRepaid` — Controller: supplier
-- `FlagIssue` — Controller: supplier
-
-#### 5. `AuditAccessGrant`
-Optional helper for scoped disclosure.
-
-**Fields:**
-- `grantor` — Party
-- `grantee` — Party
-- `dealReference` — ContractId InvoiceRequest
-- `scope` — Set Text
-- `expiry` — Date
-- `status` — AuditGrantStatus
-
-**Choices:**
-- `RevokeGrant` — Controller: grantor
-
----
-
-## Role Visibility Matrix
-
-### Supplier Sees
-- Own invoice requests
-- All bids on their own invoices
-- Selected lender identity and offer terms
-- Buyer confirmation status
-- Funding agreement for accepted bid
-- Own audit history
-
-### Lender Sees
-- Invoices they are invited to
-- Only their own bid submissions
-- Whether their bid is pending / won / not selected
-- Accepted agreement if they win
-- **No** competitor pricing
-
-### Buyer Sees
-- Invoice amount
-- Due date
-- Supplier identity (if intended in workflow)
-- Ability to confirm or dispute
-- **No** lender competition data
-- **No** sealed bid terms
-
-### Auditor Sees
-- Permissioned deal history
-- Timeline of financing events
-- Read-only states
-- **No** mutation controls
-- Only approved scope of sensitive commercial data
-
----
-
-## API Design
-
-### Key Frontend Actions
-
-**Supplier**
-- `createInvoiceRequest`
-- `inviteLenders`
-- `listMyInvoices`
-- `listBidsForInvoice`
-- `acceptBid`
-
-**Lender**
-- `listInvitedInvoices`
-- `submitBid`
-- `listMyBids`
-
-**Buyer**
-- `listInvoicesPendingVerification`
-- `confirmInvoice`
-- `disputeInvoice`
-
-**Auditor**
-- `listAuthorizedDeals`
-- `getDealAuditLog`
-- `getPermissionMatrix`
-
-### Response Design Principle
-The API returns data already shaped for the user's role.
-
-Examples:
-- Supplier gets all bids for own invoice
-- Lender gets only own bids
-- Buyer gets only verification fields
-- Auditor gets read-only event view
-
----
-
-## Read Model Strategy
-
-### Option A — Direct Ledger Reads
-Fastest for pure demo if data model is simple.
-
-### Option B — Projected Read Model
-Better UX if you need aggregated dashboards.
-
-### Hackathon Recommendation
-- Direct reads for core workflow
-- Optional lightweight projection for summary cards and timelines
-
----
-
-## Demo Seed Data Architecture
-
-- 1 supplier party
-- 3 lender parties
-- 1 buyer party
-- 1 auditor party
-- 2 invoice requests (1 active bidding, 1 verified)
-- 3 bids on one active invoice
-- 1 previously funded agreement
-- 1 buyer confirmation
-- 1 audit access grant
-
-This gives enough data for every dashboard to feel alive.
-
----
-
-## Deployment Strategy
-
-### Dev Mode
-- Local Daml sandbox / Canton setup
-- Local backend
-- Local Vite frontend
-
-### Demo Mode
-- Pre-seeded ledger state
-- Hosted frontend
-- Stable demo data
-- Optional mocked backend fallback if ledger unavailable
-
-### Critical Requirement
-Have a fallback recorded demo even if live product exists.
-
----
-
-## Principle to Say on Stage
-
-> CantoFlow uses Canton to enforce who can see what at the ledger level, so the frontend is simply revealing each party's legitimate view of the workflow rather than simulating privacy in the UI.
-
----
-
-## Setup
+## Run Demo
 
 ### Prerequisites
 - Node.js ≥ 18
-- Daml SDK 2.9.8 (`daml install --sdkver 2.9.8`)
-- (Optional) Canton Sandbox for full ledger testing
 
 ### Backend
 ```bash
@@ -334,46 +68,82 @@ npm install
 npm run dev
 ```
 
-### Daml Tests
-```bash
-cd daml
-daml install --sdkver 2.9.8
-daml build
-daml test
+Open `http://localhost:5173` and click **Launch Demo**.
+
+---
+
+## Demo Story (2 minutes)
+
+1. You land on the Landing page explaining CantoFlow and why Canton is necessary
+2. Click **Launch Demo** → you enter as **Supplier**
+3. See 3 active invoices and 3 confidential bids on REQ-001
+4. Switch to **Lender A** in the top-right role switcher → you see ONLY Lender A's bid
+5. Switch to **Lender B** → you see ONLY Lender B's bid (which was accepted)
+6. Switch to **Buyer** → you see invoice verification status, no lender data
+7. Switch to **Auditor** → you see a read-only workflow timeline, no commercial data
+
+**The point:** Canton's Daml contracts enforce these visibility boundaries. The UI is just revealing what the ledger already decided.
+
+---
+
+## What We Built (MVP)
+
+### Must Have
+- [x] 4 core roles: Supplier, Lender, Buyer, Auditor
+- [x] Invoice request creation and listing
+- [x] Buyer invoice verification (separate template)
+- [x] Confidential bid submission (contract isolation)
+- [x] Supplier bid comparison and acceptance
+- [x] Funding agreement state
+- [x] Auditor read-only workflow review
+- [x] Role switcher
+- [x] Privacy banners explaining visibility
+- [x] Premium dark-mode UI with animated transitions
+- [x] Seeded demo data (3 bids, 1 agreement, 1 invoice)
+
+### Deferred to Roadmap
+- Insurer / regulator roles
+- Multi-currency settlement
+- Secondary loan market
+- AI assistant
+- Real document storage
+- Live bank integrations
+- KYC automation
+
+---
+
+## Repository Structure
+
+```text
+cantoflow/
+  daml/
+    src/CantoFlow/Main.daml      # Daml templates
+    test/CantoFlow/Main/Test.daml # Happy-path test
+    daml.yaml                     # Daml project config
+  backend/
+    src/
+      routes/                     # Express routes
+      types/                      # TypeScript interfaces
+      index.ts                    # Server entrypoint
+  app/
+    src/
+      pages/                      # React pages
+      components/                 # Shared UI components
+      data/seed.ts                # Demo seed data
+      types/                      # Frontend types
 ```
 
 ---
 
-## Run Happy-Path Test
+## Why This Wins
 
-The Daml test `CantoFlow.Main.Test.testHappyPath` validates:
-
-1. Supplier creates InvoiceRequest
-2. Supplier invites lenders
-3. Buyer confirms invoice (separate BuyerConfirmation template)
-4. Three lenders submit confidential FinancingBid contracts
-5. Supplier accepts best bid
-6. FundingAgreement created
-7. Auditor granted scope + WorkflowEvents created
-8. Privacy assertions:
-   - Supplier sees 3 bids
-   - Lender A sees only 1 bid
-   - Lender B sees only 1 bid
-   - Auditor sees workflow events
-9. Mark agreement as repaid
-
----
-
-## Vercel Deployment
-
-```bash
-cd app
-npm run build
-npx vercel deploy dist/
-```
-
-Environment variable:
-- `VITE_API_URL` = your backend URL
+| Criterion | How CantoFlow Delivers |
+|-----------|------------------------|
+| Privacy | Daml contract-level isolation — not frontend filtering |
+| Clarity | Animated role switcher + privacy banners make visibility obvious |
+| Polish | Premium dark fintech UI with smooth transitions |
+| Simplicity | Core flow (7 steps) works end-to-end in 2 minutes |
+| Canton-specific | Built around `FinancingBid` contract isolation, `AuditAccessGrant`, `WorkflowEvent` |
 
 ---
 
