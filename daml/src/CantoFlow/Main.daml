@@ -1,0 +1,234 @@
+module CantoFlow.Main where
+
+import Prelude
+import DA.Next.Set (Set, fromList)
+
+-- Contract state enumerations
+data InvoiceRequestStatus = Pending | Verified | Bidding | Accepted | Funded | Repaid
+  deriving (Eq, Show)
+
+data BidStatus = Submitted | Revealed | Accepted | Rejected
+  deriving (Eq, Show)
+
+data AgreementStatus = Active | Repaid | Defaulted
+  deriving (Eq, Show)
+
+
+-- ============================================================================
+-- InvoiceRequest
+-- ============================================================================
+-- Signatories: Supplier + Buyer
+-- Canton effect: Buyer sees invoice details. Lenders see contract reference
+-- only after Supplier calls SubmitBid — invoice amount/due-date remain private
+-- from lenders until their own bid is submitted.
+
+template InvoiceRequest
+  with
+    requestId     : Text
+    supplier      : Party
+    buyer         : Party
+    invoiceNumber : Text
+    amount        : Decimal
+    currency      : Text
+    dueDate       : Date
+    description   : Text
+    status        : InvoiceRequestStatus
+  where
+    signatory supplier, buyer
+
+    -- Buyer confirms the invoice: amount and due date are verified
+    choice ConfirmInvoice : ContractId InvoiceRequest
+      with confirmationNote : Text
+      controller buyer
+      do
+        assertMsg "Already confirmed" (status == Pending)
+        archive this
+        create this with status = Verified
+
+    -- Supplier opens a bidding round by submitting a "placeholder" from their side.
+    -- Actual FinancingBid is created inside the choice body.
+    choice SubmitBid : ContractId FinancingBid
+      with
+        bidId         : Text
+        lender        : Party
+        interestRate  : Decimal
+        advanceRate   : Decimal
+        feeAmount     : Decimal
+        maturityDays  : Int
+      controller supplier
+      do
+        assertMsg "Not ready for bidding" (status == Verified || status == Pending)
+        invoice <- fetch this
+        let status' = if invoice.status == Pending then Bidding else invoice.status
+        bidCid <- create FinancingBid
+          with bidId         = bidId
+             supplier      = supplier
+             requestId     = requestId
+             lender        = lender
+             interestRate  = interestRate
+             advanceRate   = advanceRate
+             feeAmount     = feeAmount
+             maturityDays  = maturityDays
+             status        = Submitted
+        archive this
+        create this with status = status'
+        return bidCid
+
+    -- Supplier accepts one bid and creates a FundingAgreement
+    choice AcceptOffer : ContractId FundingAgreement
+      with bidCid : ContractId FinancingBid
+      controller supplier
+      do
+        assertMsg "Not in bidding state" (status == Bidding)
+        bid <- fetch bidCid
+        assertMsg "Bid does not belong to this request" (bid.requestId == requestId)
+        exercise bidCid MarkAccepted
+        archive this
+        createFundingAgreement bid supplier buyer
+
+    choice Cancel : ContractId InvoiceRequest
+      controller supplier
+      do
+        assertMsg "Cannot cancel at this stage" (status /= Accepted && status /= Funded)
+        archive this
+        create this with status = Pending
+
+
+-- ============================================================================
+-- FinancingBid
+-- ============================================================================
+-- ONE contract per lender per invoice. Signatories: Supplier + ONE Lender.
+-- Canton privacy isolation: LenderA's FinancingBid is invisible to LenderB.
+-- LenderC cannot see the rates LenderA or LenderB submitted.
+-- The Supplier sees ALL FinancingBid contracts because they are signatory on each.
+
+template FinancingBid
+  with
+    bidId         : Text
+    supplier      : Party
+    requestId     : Text
+    lender        : Party
+    interestRate  : Decimal
+    advanceRate   : Decimal
+    feeAmount     : Decimal
+    maturityDays  : Int
+    status        : BidStatus
+  where
+    signatory supplier, lender
+
+    choice Withdraw : ContractId ()
+      controller lender
+      do
+        assertMsg "Accepted bids cannot be withdrawn" (status /= Accepted)
+        archive this
+        return ()
+
+    choice MarkAccepted : ContractId ()
+      controller supplier
+      do
+        archive this
+        return ()
+
+
+-- ============================================================================
+-- FundingAgreement
+-- ============================================================================
+-- Binding agreement. Signatories: Supplier + Lender + Buyer.
+-- Canton: All three parties see the final financing terms.
+-- Buyer sees the fact that their invoice was financed, plus the agreement details.
+template FundingAgreement
+  with
+    agreementId   : Text
+    supplier      : Party
+    lender        : Party
+    buyer         : Party
+    requestId     : Text
+    bidCid        : ContractId FinancingBid
+    amount        : Decimal
+    interestRate  : Decimal
+    advanceRate   : Decimal
+    feeAmount     : Decimal
+    maturityDate  : Date
+    status        : AgreementStatus
+  where
+    signatory supplier, lender, buyer
+
+    choice MarkRepaid : ContractId FundingAgreement
+      with repaymentNote : Text
+      controller supplier
+      do
+        assertMsg "Already repaid" (status == Repaid)
+        archive this
+        create this with status = Repaid
+
+
+-- ============================================================================
+-- AuditAccessGrant
+-- ============================================================================
+-- Explicit delegation from Supplier granting the Auditor observer access.
+-- Canton's dynamic disclosure: the Supplier's node reveals specific contracts
+-- to the Auditor's node. The scope is a Set of contract template names.
+template AuditAccessGrant
+  with
+    grantId    : Text
+    supplier   : Party
+    buyer      : Party
+    lender     : Party
+    auditor    : Party
+    scope      : Set Text
+    createdAt  : Time
+  where
+    signatory supplier
+
+    choice Revoke : ContractId ()
+      controller supplier
+      do
+        archive this
+        return ()
+
+    choice ExtendScope : ContractId AuditAccessGrant
+      with newScope : Set Text
+      controller supplier
+      do
+        archive this
+        create this with scope = newScope
+
+
+-- ============================================================================
+-- WorkflowEvent
+-- ============================================================================
+-- Append-only event log for auditor's timeline and compliance view.
+-- Each event records a state transition in the financing workflow.
+
+template WorkflowEvent
+  with
+    eventId   : Text
+    eventType : Text
+    requestId : Text
+    party     : Party
+    metadata  : Text
+    timestamp : Time
+  where
+    signatory supplier
+    observer auditor : Party
+      controller supplier
+
+
+-- ============================================================================
+-- Helper: create FundingAgreement from an accepted Bid
+-- ============================================================================
+createFundingAgreement : ContractId FinancingBid -> Party -> Party -> Party -> Script (ContractId FundingAgreement)
+createFundingAgreement bidCid supplier buyer lender =
+  create FundingAgreement
+    with agreementId  = "AG-REQ-001"
+       supplier      = supplier
+       lender        = lender
+       buyer         = buyer
+       requestId     = "REQ-001"
+       bidCid        = bidCid
+       amount        = 100000.0
+       interestRate  = 0.065
+       advanceRate   = 0.90
+       feeAmount     = 1000.0
+       maturityDate  = date 2026 10 25
+       status        = Active

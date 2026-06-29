@@ -1,0 +1,92 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 1%;
+    --foreground: 0 0% 98%;
+    --card: 240 5% 8%;
+    --card-foreground: 0 0% 98%;
+    --border: 240 4% 16%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 4% 64%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 0 0% 98%;
+  }
+  * {
+    @apply border-[--border];
+  }
+  body {
+    @apply bg-surface-400 text-white antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  ::selection {
+    @apply bg-brand-blue/30 text-white;
+  }
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    @apply bg-surface-300;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-600 rounded-full;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-500;
+  }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-surface-300/60 backdrop-blur-xl border border-slate-700/50 rounded-2xl;
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.02), 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .glass-panel {
+    @apply bg-surface-200/40 backdrop-blur-md border border-slate-800/60 rounded-xl;
+  }
+  .stat-card {
+    @apply glass-card p-5 relative overflow-hidden;
+  }
+  .stat-card::before {
+    content: "";
+    @apply absolute inset-0 bg-gradient-to-br from-white/[0.03] to-transparent rounded-2xl;
+  }
+  .btn-primary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 font-semibold text-sm rounded-lg
+      bg-brand-blue hover:bg-brand-blue/90 text-white
+      shadow-lg shadow-brand-blue/25 hover:shadow-brand-blue/35
+      transition-all duration-200 active:scale-[0.97];
+  }
+  .btn-secondary {
+    @apply inline-flex items-center gap-2 px-5 py-2.5 font-semibold text-sm rounded-lg
+      bg-surface-100 hover:bg-slate-700 text-white border border-slate-600/60
+      transition-all duration-200 active:scale-[0.97];
+  }
+  .btn-ghost {
+    @apply inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg
+      text-slate-400 hover:text-white hover:bg-slate-800/50
+      transition-all duration-150;
+  }
+  .nav-tab {
+    @apply px-4 py-2 text-sm font-medium rounded-lg text-slate-400
+      hover:text-white hover:bg-surface-100 transition-all;
+  }
+  .nav-tab-active {
+    @apply px-4 py-2 text-sm font-medium rounded-lg
+      text-white bg-surface-100 shadow-inner;
+  }
+  .input-field {
+    @apply w-full px-4 py-2.5 rounded-lg bg-surface-300 border border-slate-700/60
+      text-white text-sm placeholder-slate-500
+      focus:outline-none focus:border-brand-blue/50 focus:ring-2 focus:ring-brand-blue/20
+      transition-all duration-150;
+  }
+  .input-field:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+}

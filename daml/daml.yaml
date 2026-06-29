@@ -1,0 +1,22 @@
+sdk-version: 2.9.8
+name: cantoflow
+version: 0.1.0
+source: daml
+parties:
+  - Supplier
+  - Buyer
+  - LenderA
+  - LenderB
+  - LenderC
+  - Auditor
+exposed-modules:
+  - CantoFlow.Main
+  - CantoFlow.Main.Test
+build-options:
+  - --ghc-option=-O0
+codegen:
+  java:
+    package-prefix: com.cantoflow
+    output-directory: daml-codegen/java
+test-scenario:
+  Main.Test:testHappyPath
