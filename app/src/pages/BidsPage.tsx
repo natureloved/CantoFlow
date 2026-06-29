@@ -1,7 +1,8 @@
 import { motion } from "framer-motion";
-import { Award, ArrowDownRight, ArrowUpRight, Eye, EyeOff, Send, CheckCircle2 } from "lucide-react";
-import { cn, formatCurrency, formatPercent, statusColor, formatDuration } from "../lib/utils";
+import { Award, Eye, EyeOff, Send, CheckCircle2, Lock } from "lucide-react";
+import { cn, formatCurrency, formatPercent, formatDate, statusColor } from "../lib/utils";
 import { ROLES, SEED_BIDS, SEED_INVOICES } from "../data/seed";
+import { CURRENT_ROLE } from "../data/seed";
 import { useNavigate } from "react-router-dom";
 
 export function BidsPage() {
@@ -73,7 +74,7 @@ export function BidsPage() {
       ) : (
         <div className="grid grid-cols-1 gap-4">
           {visibleBids.map((bid) => {
-            const invoice = SEED_INVOICES.find((i) => i.requestId === bid.requestId);
+            const invoice = SEED_INVOICES.find((i) => i.requestId === bid.invoiceRequestCid);
             const isAccepted = bid.status === "Accepted";
 
             return (
@@ -101,25 +102,25 @@ export function BidsPage() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Interest Rate</p>
-                    <p className="text-base font-bold text-white">{formatPercent(bid.interestRate)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Offer Amount</p>
+                    <p className="text-base font-bold text-white">{formatCurrency(bid.offerAmount)}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Advance Rate</p>
-                    <p className="text-base font-bold text-white">{formatPercent(bid.advanceRate)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Fee Rate</p>
+                    <p className="text-base font-bold text-white">{formatPercent(bid.feeRate)}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Fee Amount</p>
-                    <p className="text-base font-bold text-white">{formatCurrency(bid.feeAmount)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Repayment</p>
+                    <p className="text-base font-bold text-white">{formatCurrency(bid.offerAmount * (1 + bid.feeRate))}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Maturity</p>
-                    <p className="text-base font-bold text-white">{formatDuration(bid.maturityDays)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Expiry</p>
+                    <p className="text-base font-bold text-white">{formatDate(bid.expiry)}</p>
                   </div>
                 </div>
 
                 <div className="flex items-center justify-between p-2.5 rounded-xl bg-surface-200/30">
-                  <p className="text-xs text-slate-500">Invoice: <span className="text-slate-300">{invoice?.invoiceNumber || bid.requestId}</span> · <span className="text-slate-300">{invoice ? formatCurrency(invoice.amount, invoice.currency) : ""}</span></p>
+                  <p className="text-xs text-slate-500">Invoice: <span className="text-slate-300">{invoice?.invoiceId || bid.invoiceRequestCid}</span> · <span className="text-slate-300">{invoice ? formatCurrency(invoice.amount, invoice.currency) : ""}</span></p>
                   {isAccepted ? (
                     <span className="flex items-center gap-1.5 text-xs text-violet-300">
                       <CheckCircle2 className="w-3.5 h-3.5" />

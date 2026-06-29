@@ -6,7 +6,7 @@ import { bidRoutes } from './routes/bids';
 import { agreementRoutes } from './routes/agreements';
 import { auditRoutes } from './routes/audit';
 import { dashboardRoutes } from './routes/dashboard';
-import { PARTIES, ROLES } from './types';
+import { PARTIES, ROLES } from './types/index';
 
 const app = express();
 

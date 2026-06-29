@@ -16,7 +16,7 @@ export function InvoicesPage() {
   const isAuditor = CURRENT_ROLE === "auditor";
 
   const invoices = SEED_INVOICES.map(inv => {
-    const requestBids = SEED_BIDS.filter(b => b.requestId === inv.requestId);
+    const requestBids = SEED_BIDS.filter(b => b.invoiceRequestCid === inv.requestId);
     return { ...inv, bidCount: requestBids.length };
   });
 
@@ -69,7 +69,7 @@ export function InvoicesPage() {
                     <FileText className={cn("w-4 h-4", isAuditor ? "text-slate-400" : "text-brand-blue")} />
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">{invoice.invoiceNumber}</p>
+                    <p className="text-sm font-semibold text-white">{invoice.invoiceId}</p>
                     <p className="text-xs text-slate-500">{invoice.requestId}</p>
                   </div>
                 </div>
@@ -100,6 +100,7 @@ export function InvoicesPage() {
               <p className="text-xs text-slate-400 mb-3 line-clamp-1">{invoice.description}</p>
               <div className="flex items-center gap-4 text-xs text-slate-500">
                 <span>{formatCurrency(invoice.amount, invoice.currency)}</span>
+                <span>Advance: {formatCurrency(invoice.requestedAdvance, invoice.currency)}</span>
                 <span>Due {formatDate(invoice.dueDate)}</span>
                 <span>{invoice.supplier.split("::")[0] || invoice.supplier.slice(0, 15)}</span>
               </div>

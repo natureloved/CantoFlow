@@ -57,6 +57,12 @@ const BID_RATE_DATA = [
   { lender: "Lender A", rate: 8.0, accepted: false },
 ];
 
+const BID_AMOUNT_DATA = [
+  { lender: "Lender A", amount: 85000 },
+  { lender: "Lender B", amount: 90000 },
+  { lender: "Lender C", amount: 88000 },
+];
+
 const COLORS = {
   accepted: "#8b5cf6",
   pending: "#4f90ff",
@@ -186,7 +192,7 @@ export function DashboardPage() {
   const totalBids = stats?.totalBids ?? 3;
   const totalAgreements = stats?.totalAgreements ?? 1;
   const activeBids = stats?.activeBids ?? 2;
-  const expectedRepayment = stats?.expectedRepayment ?? 90000;
+  const expectedRepayment = stats?.expectedRepayment ?? 95850;
 
   return (
     <div className="max-w-7xl">
@@ -315,7 +321,7 @@ export function DashboardPage() {
                 <XAxis dataKey="lender" tick={{ fill: "#94a3b8", fontSize: 11 }} />
                 <YAxis tick={{ fill: "#94a3b8", fontSize: 11 }} domain={[0, 10]} />
                 <Tooltip
-                  formatter={(value: number) => [`${(value * 100).toFixed(1)}%`, "Interest Rate"]}
+                  formatter={(value: number) => [`${(value * 100).toFixed(1)}%`, "Fee Rate"]}
                   contentStyle={{
                     backgroundColor: "#1e293b",
                     border: "1px solid #334155",

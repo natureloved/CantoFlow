@@ -7,10 +7,16 @@ import DA.Next.Set (Set, fromList)
 data InvoiceRequestStatus = Pending | Verified | Bidding | Accepted | Funded | Repaid
   deriving (Eq, Show)
 
-data BidStatus = Submitted | Revealed | Accepted | Rejected
+data BidStatus = Submitted | Revealed | Accepted | Rejected | Expired
   deriving (Eq, Show)
 
 data AgreementStatus = Active | Repaid | Defaulted
+  deriving (Eq, Show)
+
+data ConfirmationStatus = Pending | Confirmed | Disputed
+  deriving (Eq, Show)
+
+data AuditGrantStatus = Active | Revoked | Expired
   deriving (Eq, Show)
 
 
@@ -18,114 +24,145 @@ data AgreementStatus = Active | Repaid | Defaulted
 -- InvoiceRequest
 -- ============================================================================
 -- Signatories: Supplier + Buyer
--- Canton effect: Buyer sees invoice details. Lenders see contract reference
--- only after Supplier calls SubmitBid — invoice amount/due-date remain private
--- from lenders until their own bid is submitted.
+-- Canton privacy: Buyer sees invoice amount and due date.
+-- Lenders are NOT parties to this contract. Supplier invites them via choice.
+-- Auditor is an OPTIONAL observer (added when supplier grants audit scope).
 
 template InvoiceRequest
   with
-    requestId     : Text
-    supplier      : Party
-    buyer         : Party
-    invoiceNumber : Text
-    amount        : Decimal
-    currency      : Text
-    dueDate       : Date
-    description   : Text
-    status        : InvoiceRequestStatus
+    requestId       : Text
+    supplier        : Party
+    buyer           : Party
+    invoiceId       : Text
+    amount          : Decimal
+    currency        : Text
+    dueDate         : Date
+    requestedAdvance: Decimal
+    status          : InvoiceRequestStatus
+    invitedLenders  : Set Party
+    auditor         : Party
   where
     signatory supplier, buyer
+    observer auditor
 
-    -- Buyer confirms the invoice: amount and due date are verified
-    choice ConfirmInvoice : ContractId InvoiceRequest
-      with confirmationNote : Text
-      controller buyer
+    -- Supplier invites specific lenders to bid on this invoice
+    choice InviteLenders : ContractId InvoiceRequest
+      with lenders : Set Party
+      controller supplier
       do
-        assertMsg "Already confirmed" (status == Pending)
+        assertMsg "Cannot invite lenders after acceptance" (status /= Accepted && status /= Funded)
+        archive this
+        create this with invitedLenders = lenders
+
+    -- Supplier cancels the request before acceptance
+    choice CancelRequest : ContractId InvoiceRequest
+      controller supplier
+      do
+        assertMsg "Cannot cancel accepted or funded request" (status /= Accepted && status /= Funded)
+        archive this
+        create this with status = Pending
+
+    -- Supplier submits invoice to buyer for verification
+    choice SubmitForBuyerVerification : ContractId InvoiceRequest
+      controller supplier
+      do
+        assertMsg "Invoice already in verification or beyond" (status == Pending)
         archive this
         create this with status = Verified
 
-    -- Supplier opens a bidding round by submitting a "placeholder" from their side.
-    -- Actual FinancingBid is created inside the choice body.
-    choice SubmitBid : ContractId FinancingBid
-      with
-        bidId         : Text
-        lender        : Party
-        interestRate  : Decimal
-        advanceRate   : Decimal
-        feeAmount     : Decimal
-        maturityDays  : Int
-      controller supplier
-      do
-        assertMsg "Not ready for bidding" (status == Verified || status == Pending)
-        invoice <- fetch this
-        let status' = if invoice.status == Pending then Bidding else invoice.status
-        bidCid <- create FinancingBid
-          with bidId         = bidId
-             supplier      = supplier
-             requestId     = requestId
-             lender        = lender
-             interestRate  = interestRate
-             advanceRate   = advanceRate
-             feeAmount     = feeAmount
-             maturityDays  = maturityDays
-             status        = Submitted
-        archive this
-        create this with status = status'
-        return bidCid
-
-    -- Supplier accepts one bid and creates a FundingAgreement
-    choice AcceptOffer : ContractId FundingAgreement
+    -- Supplier accepts a lender's bid and creates a FundingAgreement
+    choice AcceptBid : ContractId FundingAgreement
       with bidCid : ContractId FinancingBid
       controller supplier
       do
-        assertMsg "Not in bidding state" (status == Bidding)
+        assertMsg "Not in bidding state" (status == Bidding || status == Verified)
         bid <- fetch bidCid
-        assertMsg "Bid does not belong to this request" (bid.requestId == requestId)
+        assertMsg "Bid does not belong to this invoice" (bid.invoiceRequestCid == requestId)
         exercise bidCid MarkAccepted
         archive this
-        createFundingAgreement bid supplier buyer
+        createFundingAgreement bidCid supplier buyer bid
 
-    choice Cancel : ContractId InvoiceRequest
-      controller supplier
+
+-- ============================================================================
+-- BuyerConfirmation
+-- ============================================================================
+-- Separate contract for buyer verification.
+-- Buyer sees invoice details; does NOT see financing terms.
+-- Supplier can see this confirmation status.
+
+template BuyerConfirmation
+  with
+    confirmationId    : Text
+    invoiceRequestCid : ContractId InvoiceRequest
+    supplier          : Party
+    buyer             : Party
+    confirmedAmount   : Decimal
+    confirmedDueDate  : Date
+    status            : ConfirmationStatus
+    notes             : Text
+  where
+    signatory supplier, buyer
+
+    -- Buyer confirms invoice amount and due date
+    choice ConfirmInvoice : ContractId BuyerConfirmation
+      controller buyer
       do
-        assertMsg "Cannot cancel at this stage" (status /= Accepted && status /= Funded)
+        assertMsg "Already confirmed or disputed" (status == Pending)
         archive this
-        create this with status = Pending
+        create this with status = Confirmed
+
+    -- Buyer disputes the invoice (amount mismatch, fraud, etc.)
+    choice RaiseDispute : ContractId BuyerConfirmation
+      with disputeReason : Text
+      controller buyer
+      do
+        assertMsg "Already confirmed or disputed" (status == Pending)
+        archive this
+        create this with status = Disputed
 
 
 -- ============================================================================
 -- FinancingBid
 -- ============================================================================
--- ONE contract per lender per invoice. Signatories: Supplier + ONE Lender.
--- Canton privacy isolation: LenderA's FinancingBid is invisible to LenderB.
--- LenderC cannot see the rates LenderA or LenderB submitted.
--- The Supplier sees ALL FinancingBid contracts because they are signatory on each.
+-- ONE contract per lender per invoice.
+-- Signatories: Supplier + ONE Lender.
+-- Canton privacy: LenderA's bid is invisible to LenderB.
+-- Supplier sees all bids. Each lender sees only their own.
 
 template FinancingBid
   with
-    bidId         : Text
-    supplier      : Party
-    requestId     : Text
-    lender        : Party
-    interestRate  : Decimal
-    advanceRate   : Decimal
-    feeAmount     : Decimal
-    maturityDays  : Int
-    status        : BidStatus
+    bidId            : Text
+    invoiceRequestCid: ContractId InvoiceRequest
+    supplier         : Party
+    lender           : Party
+    offerAmount      : Decimal
+    feeRate          : Decimal
+    expiry           : Date
+    status           : BidStatus
   where
     signatory supplier, lender
 
-    choice Withdraw : ContractId ()
+    -- Lender can withdraw bid before acceptance
+    choice WithdrawBid : ContractId ()
       controller lender
       do
-        assertMsg "Accepted bids cannot be withdrawn" (status /= Accepted)
+        assertMsg "Cannot withdraw accepted or expired bid" (status /= Accepted && status /= Expired)
         archive this
         return ()
 
+    -- Mark bid as expired (can be called by supplier or auto via time)
+    choice ExpireBid : ContractId ()
+      controller supplier
+      do
+        assertMsg "Already resolved" (status == Submitted || status == Revealed)
+        archive this
+        return ()
+
+    -- Supplier marks bid as accepted (triggers agreement creation)
     choice MarkAccepted : ContractId ()
       controller supplier
       do
+        assertMsg "Bid not in valid state" (status == Submitted || status == Revealed)
         archive this
         return ()
 
@@ -133,26 +170,42 @@ template FinancingBid
 -- ============================================================================
 -- FundingAgreement
 -- ============================================================================
--- Binding agreement. Signatories: Supplier + Lender + Buyer.
--- Canton: All three parties see the final financing terms.
--- Buyer sees the fact that their invoice was financed, plus the agreement details.
+-- Binding agreement: Supplier + Lender + Buyer as signatories.
+-- Canton: All three see the agreement terms.
+
 template FundingAgreement
   with
-    agreementId   : Text
-    supplier      : Party
-    lender        : Party
-    buyer         : Party
-    requestId     : Text
-    bidCid        : ContractId FinancingBid
-    amount        : Decimal
-    interestRate  : Decimal
-    advanceRate   : Decimal
-    feeAmount     : Decimal
-    maturityDate  : Date
-    status        : AgreementStatus
+    agreementId     : Text
+    invoiceRequestCid: ContractId InvoiceRequest
+    supplier        : Party
+    lender          : Party
+    buyer           : Party
+    principal       : Decimal
+    feeRate         : Decimal
+    repaymentAmount : Decimal
+    maturityDate    : Date
+    status          : AgreementStatus
   where
     signatory supplier, lender, buyer
 
+    -- Record that funds have been disbursed
+    choice RecordFunding : ContractId FundingAgreement
+      controller supplier
+      do
+        assertMsg "Already funded" (status == Active)
+        archive this
+        create this with status = Active
+
+    -- Schedule a repayment (typically buyer pays supplier, who pays lender)
+    choice ScheduleRepayment : ContractId FundingAgreement
+      with amount : Decimal
+      controller supplier
+      do
+        assertMsg "Agreement not active" (status == Active)
+        archive this
+        create this with status = Repaid
+
+    -- Mark as fully repaid
     choice MarkRepaid : ContractId FundingAgreement
       with repaymentNote : Text
       controller supplier
@@ -161,44 +214,49 @@ template FundingAgreement
         archive this
         create this with status = Repaid
 
+    -- Flag an issue (dispute, non-payment, etc.)
+    choice FlagIssue : ContractId FundingAgreement
+      with issueDescription : Text
+      controller supplier
+      do
+        assertMsg "Already resolved" (status == Active)
+        archive this
+        create this with status = Defaulted
+
 
 -- ============================================================================
 -- AuditAccessGrant
 -- ============================================================================
--- Explicit delegation from Supplier granting the Auditor observer access.
--- Canton's dynamic disclosure: the Supplier's node reveals specific contracts
--- to the Auditor's node. The scope is a Set of contract template names.
+-- Explicit delegation from Grantor (Supplier) to Grantee (Auditor).
+-- Canton's dynamic disclosure: grants scoped visibility without revealing
+-- the underlying contracts.
+
 template AuditAccessGrant
   with
-    grantId    : Text
-    supplier   : Party
-    buyer      : Party
-    lender     : Party
-    auditor    : Party
-    scope      : Set Text
-    createdAt  : Time
+    grantId        : Text
+    grantor        : Party
+    grantee        : Party
+    dealReference  : ContractId InvoiceRequest
+    scope          : Set Text
+    expiry         : Date
+    status         : AuditGrantStatus
   where
-    signatory supplier
+    signatory grantor
 
-    choice Revoke : ContractId ()
-      controller supplier
+    -- Revoke the grant
+    choice RevokeGrant : ContractId ()
+      controller grantor
       do
+        assertMsg "Grant already revoked or expired" (status == Active)
         archive this
         return ()
-
-    choice ExtendScope : ContractId AuditAccessGrant
-      with newScope : Set Text
-      controller supplier
-      do
-        archive this
-        create this with scope = newScope
 
 
 -- ============================================================================
 -- WorkflowEvent
 -- ============================================================================
--- Append-only event log for auditor's timeline and compliance view.
--- Each event records a state transition in the financing workflow.
+-- Append-only log of workflow state transitions for the auditor's timeline.
+-- Created by the workflow engine; Auditor is observer.
 
 template WorkflowEvent
   with
@@ -215,20 +273,18 @@ template WorkflowEvent
 
 
 -- ============================================================================
--- Helper: create FundingAgreement from an accepted Bid
+-- Helpers
 -- ============================================================================
-createFundingAgreement : ContractId FinancingBid -> Party -> Party -> Party -> Script (ContractId FundingAgreement)
-createFundingAgreement bidCid supplier buyer lender =
+createFundingAgreement : ContractId FinancingBid -> Party -> Party -> FinancingBid -> Script (ContractId FundingAgreement)
+createFundingAgreement bidCid supplier buyer bid =
   create FundingAgreement
-    with agreementId  = "AG-REQ-001"
-       supplier      = supplier
-       lender        = lender
-       buyer         = buyer
-       requestId     = "REQ-001"
-       bidCid        = bidCid
-       amount        = 100000.0
-       interestRate  = 0.065
-       advanceRate   = 0.90
-       feeAmount     = 1000.0
-       maturityDate  = date 2026 10 25
-       status        = Active
+    with agreementId      = "AG-" <> bid.invoiceRequestCid
+       invoiceRequestCid = bid.invoiceRequestCid
+       supplier          = supplier
+       lender            = bid.lender
+       buyer             = buyer
+       principal         = bid.offerAmount
+       feeRate           = bid.feeRate
+       repaymentAmount   = bid.offerAmount * (1.0 + bid.feeRate)
+       maturityDate      = bid.expiry
+       status            = Active

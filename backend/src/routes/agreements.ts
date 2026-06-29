@@ -1,6 +1,6 @@
 import express, { Request, Response } from 'express';
 import { v4 as uuid } from 'uuid';
-import { FundingAgreement, AgreementStatus } from '../types';
+import { FundingAgreement, AgreementStatusType } from '../types/index';
 import { PARTIES } from '../types';
 
 const router = express.Router();
@@ -9,17 +9,14 @@ let agreements: FundingAgreement[] = [];
 
 const SEED_AGREEMENT: FundingAgreement = {
   agreementId: 'AG-REQ-001',
+  invoiceRequestCid: 'REQ-001',
   supplier: PARTIES.Supplier,
   lender: PARTIES.LenderB,
   buyer: PARTIES.Buyer,
-  requestId: 'REQ-001',
-  bidId: 'BID-B',
-  amount: 100000.0,
-  currency: 'USD',
-  interestRate: 0.065,
-  advanceRate: 0.90,
-  feeAmount: 1000.0,
-  maturityDate: '2026-10-25',
+  principal: 90000.0,
+  feeRate: 0.065,
+  repaymentAmount: 95850.0,
+  maturityDate: '2026-09-14',
   status: 'Active',
   createdAt: '2026-06-29T14:00:00Z'
 };
@@ -37,22 +34,19 @@ router.get('/:id', (req: Request, res: Response) => {
 });
 
 router.post('/', (req: Request, res: Response) => {
-  const { supplier, lender, buyer, requestId, bidId, amount, currency, interestRate, advanceRate, feeAmount, maturityDate } = req.body;
-  if (!supplier || !lender || !buyer || !requestId) {
-    return res.status(400).json({ error: 'supplier, lender, buyer, and requestId are required' });
+  const { invoiceRequestCid, supplier, lender, buyer, principal, feeRate, maturityDate } = req.body;
+  if (!invoiceRequestCid || !supplier || !lender || !buyer) {
+    return res.status(400).json({ error: 'invoiceRequestCid, supplier, lender, and buyer are required' });
   }
   const newAgreement: FundingAgreement = {
-    agreementId: `AG-${requestId}`,
+    agreementId: `AG-${invoiceRequestCid}`,
+    invoiceRequestCid,
     supplier,
     lender,
     buyer,
-    requestId,
-    bidId: bidId || '',
-    amount: parseFloat(amount) || 0,
-    currency: currency || 'USD',
-    interestRate: parseFloat(interestRate) || 0,
-    advanceRate: parseFloat(advanceRate) || 0,
-    feeAmount: parseFloat(feeAmount) || 0,
+    principal: parseFloat(principal) || 0,
+    feeRate: parseFloat(feeRate) || 0,
+    repaymentAmount: (parseFloat(principal) || 0) * (1 + (parseFloat(feeRate) || 0)),
     maturityDate: maturityDate || new Date(Date.now() + 90 * 86400000).toISOString().split('T')[0],
     status: 'Active',
     createdAt: new Date().toISOString()
@@ -66,7 +60,7 @@ router.patch('/:id', (req: Request, res: Response) => {
   if (idx === -1) return res.status(404).json({ error: 'Agreement not found' });
   const { status } = req.body;
   if (status && ['Active', 'Repaid', 'Defaulted'].includes(status)) {
-    agreements[idx] = { ...agreements[idx], status: status as AgreementStatus };
+    agreements[idx] = { ...agreements[idx], status: status as AgreementStatusType };
   }
   res.json(agreements[idx]);
 });

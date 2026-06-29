@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { FileText, Landmark, ArrowRight, Shield, CheckCircle2, AlertTriangle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { SEED_AGREEMENT } from "../data/seed";
-import { cn, formatCurrency, formatDate, statusColor } from "../lib/utils";
+import { cn, formatCurrency, formatDate, formatPercent, statusColor } from "../lib/utils";
 
 export function AgreementsPage() {
   const navigate = useNavigate();
@@ -42,20 +42,16 @@ export function AgreementsPage() {
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mt-4">
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Financed Amount</p>
-                    <p className="text-lg font-bold text-white">{formatCurrency(agreement.amount)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Principal</p>
+                    <p className="text-lg font-bold text-white">{formatCurrency(agreement.principal)}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Interest Rate</p>
-                    <p className="text-lg font-bold text-white">{formatPercent(agreement.interestRate)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Fee Rate</p>
+                    <p className="text-lg font-bold text-white">{formatPercent(agreement.feeRate)}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Advance Rate</p>
-                    <p className="text-lg font-bold text-white">{formatPercent(agreement.advanceRate)}</p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-surface-200/50">
-                    <p className="text-[10px] text-slate-500 mb-1">Origination Fee</p>
-                    <p className="text-lg font-bold text-white">{formatCurrency(agreement.feeAmount)}</p>
+                    <p className="text-[10px] text-slate-500 mb-1">Repayment</p>
+                    <p className="text-lg font-bold text-white">{formatCurrency(agreement.repaymentAmount)}</p>
                   </div>
                   <div className="p-3 rounded-xl bg-surface-200/50">
                     <p className="text-[10px] text-slate-500 mb-1">Maturity</p>

@@ -2,44 +2,65 @@ export interface InvoiceRequest {
   requestId: string;
   supplier: string;
   buyer: string;
-  invoiceNumber: string;
+  invoiceId: string;
   amount: number;
   currency: string;
   dueDate: string;
-  description: string;
+  requestedAdvance: number;
   status: string;
+  invitedLenders: string[];
+  auditor: string;
+  createdAt?: string;
+}
+
+export interface BuyerConfirmation {
+  confirmationId: string;
+  invoiceRequestCid: string;
+  supplier: string;
+  buyer: string;
+  confirmedAmount: number;
+  confirmedDueDate: string;
+  status: string;
+  notes: string;
   createdAt?: string;
 }
 
 export interface FinancingBid {
   bidId: string;
+  invoiceRequestCid: string;
   supplier: string;
   lender: string;
-  requestId: string;
-  interestRate: number;
-  advanceRate: number;
-  feeAmount: number;
-  maturityDays: number;
+  offerAmount: number;
+  feeRate: number;
+  expiry: string;
   status: string;
   submittedAt?: string;
 }
 
 export interface FundingAgreement {
   agreementId: string;
+  invoiceRequestCid: string;
   supplier: string;
   lender: string;
   buyer: string;
-  requestId: string;
-  bidId: string;
-  amount: number;
-  currency: string;
-  interestRate: number;
-  advanceRate: number;
-  feeAmount: number;
+  principal: number;
+  feeRate: number;
+  repaymentAmount: number;
   maturityDate: string;
   status: string;
   createdAt?: string;
   repaidAt?: string;
+}
+
+export interface AuditAccessGrant {
+  grantId: string;
+  grantor: string;
+  grantee: string;
+  dealReference: string;
+  scope: string[];
+  expiry: string;
+  status: string;
+  createdAt?: string;
 }
 
 export interface WorkflowEvent {
@@ -51,16 +72,6 @@ export interface WorkflowEvent {
   timestamp: string;
 }
 
-export interface AuditAccessGrant {
-  grantId: string;
-  supplier: string;
-  buyer: string;
-  lender: string;
-  auditor: string;
-  scope: string[];
-  createdAt: string;
-}
-
 export interface RoleConfig {
   party: string;
   label: string;
@@ -69,8 +80,10 @@ export interface RoleConfig {
 }
 
 export type RequestStatus = "Pending" | "Verified" | "Bidding" | "Accepted" | "Funded" | "Repaid";
-export type BidStatusType = "Submitted" | "Revealed" | "Accepted" | "Rejected";
+export type BidStatusType = "Submitted" | "Revealed" | "Accepted" | "Rejected" | "Expired";
 export type AgreementStatusType = "Active" | "Repaid" | "Defaulted";
+export type ConfirmationStatusType = "Pending" | "Confirmed" | "Disputed";
+export type AuditGrantStatusType = "Active" | "Revoked" | "Expired";
 
 export interface DashboardStats {
   totalInvoices: number;

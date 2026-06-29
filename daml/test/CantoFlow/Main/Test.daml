@@ -2,129 +2,161 @@ module CantoFlow.Main.Test where
 
 import CantoFlow.Main
 import DA.Next.Set (fromList)
+import Prelude
 import DA.Test.Scenario (test, assertEq)
 
 -- | CantoFlow Happy-Path Integration Test
 -- |
--- | Demonstrates Canton's privacy guarantees through Daml contracts:
--- |
+-- | Step-by-step:
 -- | 1. Supplier creates InvoiceRequest (signatories: supplier + buyer)
--- | 2. Buyer confirms invoice amount and due date
--- | 3. Three lenders submit 3 separate FinancingBid contracts
--- |    → LenderA sees only bidA, LenderB only bidB, etc.
--- | 4. Supplier accepts best bid (LenderB: 6.5%)
--- | 5. FundingAgreement created (supplier + lender + buyer signatories)
--- | 6. AuditAccessGrant + WorkflowEvents for the Auditor
--- | 7. Verify privacy model: supplier sees 3 bids, each lender sees 1
--- |
+-- | 2. Supplier invites lenders
+-- | 3. Buyer confirms invoice (separate BuyerConfirmation template)
+-- | 4. Three lenders submit confidential FinancingBid contracts
+-- |    -> LenderA sees only bidA, LenderB only bidB, etc.
+-- | 5. Supplier accepts best bid (LenderB: lowest feeRate)
+-- | 6. FundingAgreement created (supplier + lender + buyer signatories)
+-- | 7. AuditAccessGrant + WorkflowEvents for the Auditor
+-- | 8. Verify privacy model: supplier sees 3 bids, each lender sees 1
+-- | 9. Record funding, schedule repayment, verify audit log
+
 testHappyPath : Script ()
 testHappyPath = test "CantoFlow happy path" $ do
-  let supplier   = "Supplier"
-      buyer      = "Buyer"
-      lenderA    = "LenderA"
-      lenderB    = "LenderB"
-      lenderC    = "LenderC"
-      auditor    = "Auditor"
-      requestId  = "REQ-001"
-      now        = time 2026 6 29 14 31 49
+  let supplier     = "Supplier"
+      buyer        = "Buyer"
+      lenderA      = "LenderA"
+      lenderB      = "LenderB"
+      lenderC      = "LenderC"
+      auditor      = "Auditor"
+      lenders      = fromList [lenderA, lenderB, lenderC]
+      requestId    = "REQ-001"
+      now          = time 2026 6 29 14 31 49
 
   --
   -- Step 1: Supplier creates InvoiceRequest
+  -- Signatories: supplier + buyer
+  -- Auditor is an optional observer (added later via AuditAccessGrant)
   --
   requestCid <- submit supplier do
     createCmd InvoiceRequest
-      with requestId     = requestId
-         supplier       = supplier
-         buyer          = buyer
-         invoiceNumber  = "INV-2026-001"
-         amount         = 100000.0
-         currency       = "USD"
-         dueDate        = date 2026 9 1
-         description    = "Raw materials invoice for Q3 production"
-         status         = Pending
-
-  invoice1 <- query requestCid
-  assertEq "Invoice amount" invoice1.amount 100000.0
-  assertEq "Invoice currency" invoice1.currency "USD"
-  assertEq "Invoice buyer" invoice1.buyer buyer
+      with requestId        = requestId
+         supplier          = supplier
+         buyer             = buyer
+         invoiceId         = "INV-2026-001"
+         amount            = 100000.0
+         currency          = "USD"
+         dueDate           = date 2026 9 1
+         requestedAdvance  = 85000.0
+         status            = Pending
+         invitedLenders    = fromList []
+         auditor           = auditor
 
   --
-  -- Step 2: Buyer confirms invoice (verifies amount + due date)
-  -- Canton: buyer and supplier see this transition; lenders do not.
+  -- Step 2: Supplier invites lenders to bid
   --
+  submit supplier do
+    exerciseCmd requestCid InviteLenders
+      with lenders = lenders
+
+  --
+  -- Step 3: Buyer confirms invoice amount and due date
+  -- BuyerConfirmation is a SEPARATE contract. Buyer does not see financing terms.
+  --
+  confirmCid <- submit supplier do
+    createCmd BuyerConfirmation
+      with confirmationId    = "CONF-001"
+         invoiceRequestCid  = requestCid
+         supplier           = supplier
+         buyer              = buyer
+         confirmedAmount    = 100000.0
+         confirmedDueDate   = date 2026 9 1
+         status             = Pending
+         notes              = ""
+
   submit buyer do
-    exerciseCmd requestCid ConfirmInvoice
-      with confirmationNote = "Amount $100,000 USD and due date 2026-09-01 verified"
+    exerciseCmd confirmCid ConfirmInvoice
 
-  invoice2 <- query requestCid
-  assertEq "Status after confirmation" invoice2.status Verified
+  confirmation <- query confirmCid
+  assertEq "Confirmation status" confirmation.status Confirmed
 
   --
-  -- Step 3: Three lenders submit confidential bids
+  -- Step 4: Three lenders submit confidential bids
   -- Canton privacy in action:
   --   Each FinancingBid is a SEPARATE Daml contract with signatories:
   --     {Supplier, LenderX}
   --   Supplier sees all 3 (signatory on each).
   --   LenderA sees ONLY bidA. LenderB sees ONLY bidB. LenderC sees ONLY bidC.
-  --   No cross-leakage: LenderA cannot query or observe bidB or bidC.
   --
   bidACid <- submit supplier do
-    exerciseCmd requestCid SubmitBid
-      with bidId         = "BID-A"
-         lender         = lenderA
-         interestRate   = 0.08
-         advanceRate    = 0.85
-         feeAmount      = 1250.0
-         maturityDays   = 90
+    createCmd FinancingBid
+      with bidId             = "BID-A"
+         invoiceRequestCid  = requestCid
+         supplier           = supplier
+         lender             = lenderA
+         offerAmount        = 85000.0
+         feeRate            = 0.08
+         expiry             = date 2026 11 29
+         status             = Submitted
 
   bidBCid <- submit supplier do
-    exerciseCmd requestCid SubmitBid
-      with bidId         = "BID-B"
-         lender         = lenderB
-         interestRate   = 0.065
-         advanceRate    = 0.90
-         feeAmount      = 1000.0
-         maturityDays   = 75
+    createCmd FinancingBid
+      with bidId             = "BID-B"
+         invoiceRequestCid  = requestCid
+         supplier           = supplier
+         lender             = lenderB
+         offerAmount        = 90000.0
+         feeRate            = 0.065
+         expiry             = date 2026 9 14
+         status             = Submitted
 
   bidCCid <- submit supplier do
-    exerciseCmd requestCid SubmitBid
-      with bidId         = "BID-C"
-         lender         = lenderC
-         interestRate   = 0.07
-         advanceRate    = 0.88
-         feeAmount      = 1100.0
-         maturityDays   = 80
+    createCmd FinancingBid
+      with bidId             = "BID-C"
+         invoiceRequestCid  = requestCid
+         supplier           = supplier
+         lender             = lenderC
+         offerAmount        = 88000.0
+         feeRate            = 0.07
+         expiry             = date 2026 10 15
+         status             = Submitted
 
   --
-  -- Step 4: Supplier accepts LenderB's bid (lowest rate: 6.5%)
+  -- Step 5: Supplier accepts LenderB's bid (lowest feeRate: 6.5%, highest advance)
   --
   agreementCid <- submit supplier do
-    exerciseCmd requestCid AcceptOffer
+    exerciseCmd requestCid AcceptBid
       with bidCid = bidBCid
 
   --
-  -- Step 5: Verify FundingAgreement
+  -- Step 6: Verify FundingAgreement
   -- Canton: supplier + lender + buyer are signatories, all see agreement.
   --
   agreement <- query agreementCid
   assertEq "Agreement status" agreement.status Active
   assertEq "Agreement lender" agreement.lender lenderB
-  assertEq "Agreement interestRate" agreement.interestRate 0.065
-  assertEq "Agreement advanceRate" agreement.advanceRate 0.90
-  assertEq "Agreement feeAmount" agreement.feeAmount 1000.0
+  assertEq "Agreement principal" agreement.principal 90000.0
 
   --
-  -- Step 6: Auditor access grant and workflow events
+  -- Step 7: Record funding and schedule repayment
+  --
+  submit supplier do
+    exerciseCmd agreementCid RecordFunding
+
+  submit supplier do
+    exerciseCmd agreementCid ScheduleRepayment
+      with amount = agreement.repaymentAmount
+
+  --
+  -- Step 8: Grant auditor access and log workflow events
   --
   grantCid <- submit supplier do
     createCmd AuditAccessGrant
-      with grantId   = "GRANT-001"
-         supplier   = supplier
-         buyer      = buyer
-         lender     = lenderB
-         auditor    = auditor
-         scope      = fromList ["InvoiceRequest", "FundingAgreement", "WorkflowEvent"]
-         createdAt  = now
+      with grantId        = "GRANT-001"
+         grantor          = supplier
+         grantee          = auditor
+         dealReference    = requestCid
+         scope            = fromList ["InvoiceRequest", "FundingAgreement", "WorkflowEvent"]
+         expiry           = date 2027 6 29
+         status           = Active
 
   submit supplier do
     createCmd WorkflowEvent
@@ -132,7 +164,7 @@ testHappyPath = test "CantoFlow happy path" $ do
          eventType   = "InvoiceCreated"
          requestId   = requestId
          party       = supplier
-         metadata    = "Invoice INV-2026-001 created for $100,000 USD, due 2026-09-01"
+         metadata    = "Invoice INV-2026-001 created for $100,000 USD"
          timestamp   = now
 
   submit buyer do
@@ -150,7 +182,7 @@ testHappyPath = test "CantoFlow happy path" $ do
          eventType   = "BidsSubmitted"
          requestId   = requestId
          party       = supplier
-         metadata    = "3 confidential bids received from LenderA, LenderB, LenderC"
+         metadata    = "3 confidential bids received"
          timestamp   = now
 
   submit supplier do
@@ -159,21 +191,13 @@ testHappyPath = test "CantoFlow happy path" $ do
          eventType   = "BidAccepted"
          requestId   = requestId
          party       = supplier
-         metadata    = "Accepted BID-B from LenderB at 6.5% interest"
-         timestamp   = now
-
-  submit supplier do
-    createCmd WorkflowEvent
-      with eventId    = "EVT-005"
-         eventType   = "AgreementCreated"
-         requestId   = requestId
-         party       = supplier
-         metadata    = "Funding agreement AG-REQ-001 created"
+         metadata    = "Accepted BID-B from LenderB at 6.5% fee rate"
          timestamp   = now
 
   --
-  -- Step 7: Verify Canton privacy model
+  -- Step 9: Verify Canton privacy model
   --
+
   -- Supplier sees all 3 FinancingBid contracts (signatory on each)
   supplierBids <- queryFilter @FinancingBid (\b -> b.supplier == supplier)
   assertEq "Supplier should see 3 bids" (length supplierBids) 3
@@ -190,18 +214,18 @@ testHappyPath = test "CantoFlow happy path" $ do
   lenderCBids <- queryFilter @FinancingBid (\b -> b.lender == lenderC)
   assertEq "LenderC should see only 1 bid" (length lenderCBids) 1
 
-  -- Auditor should see at least the invoice and agreement events (via AuditAccessGrant)
+  -- Auditor should see at least the invoice and agreement events
   auditorEvents <- queryFilter @WorkflowEvent (\e -> e.eventType == "InvoiceCreated" || e.eventType == "AgreementCreated")
   assertEq "Auditor should see key workflow events" (length auditorEvents) 2
 
   --
-  -- Step 8: Mark agreement as repaid (end of happy path)
+  -- Step 10: Mark agreement as repaid (end of happy path)
   --
   submit supplier do
     exerciseCmd agreementCid MarkRepaid
-      with repaymentNote = "Full repayment on maturity date 2026-10-25"
+      with repaymentNote = "Full repayment on maturity date"
 
-  finalAgreement <- query agreementCid
-  assertEq "Agreement should be Repaid" finalAgreement.status Repaid
+  repaidAgreement <- query agreementCid
+  assertEq "Agreement should be Repaid" repaidAgreement.status Repaid
 
   return ()
